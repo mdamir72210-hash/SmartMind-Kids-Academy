@@ -1,0 +1,6 @@
+{
+  "name": "SmartMind Kids Academy",
+  "description": "Interactive bilingual English and Bengali educational learning game for children aged 5-12 featuring A-Z phonics, Bengali alphabet, numbers and math, picture learning, mini-games, rewards, and parent progress tracking.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
