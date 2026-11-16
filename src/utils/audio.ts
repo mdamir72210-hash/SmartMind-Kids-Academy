@@ -1,4 +1,4 @@
-import {
+﻿import {
   getBengaliPreloadStats,
   playPreGeneratedBengaliAudio,
   preloadBengaliTexts,
@@ -15,6 +15,7 @@ export interface SpeechResult {
 export type BengaliSpeechResult = PreGeneratedSpeechResult;
 
 let sfxCtx: AudioContext | null = null;
+let fallbackEnglishAudio: HTMLAudioElement | null = null;
 
 function getSfxContext(): AudioContext | null {
   if (typeof window === 'undefined') return null;
@@ -39,6 +40,14 @@ export function unlockAudioForMobile(): void {
 
 export function stopActiveBengaliAudio(): void {
   stopPreGeneratedBengaliAudio();
+  if (fallbackEnglishAudio) {
+    try {
+      fallbackEnglishAudio.pause();
+      fallbackEnglishAudio.currentTime = 0;
+    } catch {
+      // Ignore
+    }
+  }
 }
 
 export function playTapSound(enabled = true): void {
@@ -108,19 +117,19 @@ export function playTryAgainTone(enabled = true): void {
 }
 
 // ==========================================
-// ENGLISH AUDIO (Separate, preserved as-is)
+// ENGLISH AUDIO (With Mobile WebView Audio Fallback)
 // ==========================================
 
 export function hasSpeechSupport(): boolean {
   return (
     typeof window !== 'undefined' &&
-    'speechSynthesis' in window &&
-    typeof SpeechSynthesisUtterance !== 'undefined'
+    (('speechSynthesis' in window && typeof SpeechSynthesisUtterance !== 'undefined') ||
+      typeof Audio !== 'undefined')
   );
 }
 
 export function getVoicesSafe(): SpeechSynthesisVoice[] {
-  if (!hasSpeechSupport()) return [];
+  if (typeof window === 'undefined' || !('speechSynthesis' in window)) return [];
   try {
     return window.speechSynthesis.getVoices() || [];
   } catch {
@@ -138,27 +147,79 @@ export function findEnglishVoice(): SpeechSynthesisVoice | null {
   );
 }
 
-export function speakEnglish(text: string, rateMode: 'slow' | 'normal' = 'normal'): SpeechResult {
-  if (!hasSpeechSupport()) {
-    return { spoken: false, reason: 'no-speech-api' };
-  }
+function playFallbackEnglishAudio(text: string, rateMode: 'slow' | 'normal'): boolean {
+  if (typeof window === 'undefined' || typeof Audio === 'undefined') return false;
   try {
-    window.speechSynthesis.cancel();
-    const utter = new SpeechSynthesisUtterance(text);
-    const voice = findEnglishVoice();
-    if (voice) {
-      utter.voice = voice;
-      utter.lang = voice.lang;
-    } else {
-      utter.lang = 'en-US';
+    if (fallbackEnglishAudio) {
+      fallbackEnglishAudio.pause();
+      fallbackEnglishAudio.currentTime = 0;
     }
-    utter.rate = rateMode === 'slow' ? 0.78 : 0.94;
-    utter.pitch = 1.05;
-    window.speechSynthesis.speak(utter);
-    return { spoken: true };
+    const cleanText = text.trim();
+    if (!cleanText) return false;
+
+    const encoded = encodeURIComponent(cleanText);
+    const primaryUrl = `https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=en&q=${encoded}`;
+    const backupUrl = `https://api.streamelements.com/kappa/v2/speech?voice=Brian&text=${encoded}`;
+
+    const audio = new Audio(primaryUrl);
+    audio.playbackRate = rateMode === 'slow' ? 0.85 : 1.0;
+    fallbackEnglishAudio = audio;
+
+    audio.play().catch(() => {
+      try {
+        const backupAudio = new Audio(backupUrl);
+        backupAudio.playbackRate = rateMode === 'slow' ? 0.85 : 1.0;
+        fallbackEnglishAudio = backupAudio;
+        backupAudio.play().catch(() => {});
+      } catch {
+        // Ignore
+      }
+    });
+
+    return true;
   } catch {
-    return { spoken: false, reason: 'no-speech-api' };
+    return false;
   }
+}
+
+export function speakEnglish(text: string, rateMode: 'slow' | 'normal' = 'normal'): SpeechResult {
+  const hasNativeSpeech =
+    typeof window !== 'undefined' &&
+    'speechSynthesis' in window &&
+    typeof SpeechSynthesisUtterance !== 'undefined';
+
+  if (hasNativeSpeech) {
+    try {
+      const voices = getVoicesSafe();
+      // On Android WebView, speechSynthesis exists in window but has 0 voices and fails silently
+      if (voices.length > 0 || !/Android/i.test(navigator.userAgent)) {
+        window.speechSynthesis.cancel();
+        const utter = new SpeechSynthesisUtterance(text);
+        const voice = findEnglishVoice();
+        if (voice) {
+          utter.voice = voice;
+          utter.lang = voice.lang;
+        } else {
+          utter.lang = 'en-US';
+        }
+        utter.rate = rateMode === 'slow' ? 0.78 : 0.94;
+        utter.pitch = 1.05;
+        utter.onerror = () => {
+          playFallbackEnglishAudio(text, rateMode);
+        };
+        window.speechSynthesis.speak(utter);
+        return { spoken: true };
+      }
+    } catch {
+      // Fall through to HTML5 Audio fallback
+    }
+  }
+
+  const played = playFallbackEnglishAudio(text, rateMode);
+  if (played) {
+    return { spoken: true };
+  }
+  return { spoken: false, reason: 'no-speech-api' };
 }
 
 // =========================================================================
