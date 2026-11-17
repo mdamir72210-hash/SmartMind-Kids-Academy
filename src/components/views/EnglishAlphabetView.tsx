@@ -13,8 +13,14 @@ import {
 import { ENGLISH_ALPHABET } from '../../data/englishAlphabet';
 import { useBengaliSpeech } from '../../hooks/useBengaliSpeech';
 import { LearningProgress } from '../../types/learning';
-import { playSuccessChime, playTapSound, playTryAgainTone, speakEnglish } from '../../utils/audio';
-import { PictureArt } from '../common/PictureArt';
+import {
+  playSuccessChime,
+  playTapSound,
+  playTryAgainTone,
+  preloadEnglishTexts,
+  speakEnglish,
+} from '../../utils/audio';
+import { PictureArt, preloadVocabImages } from '../common/PictureArt';
 import { RewardBanner } from '../common/RewardBanner';
 import { TracingCanvas } from '../common/TracingCanvas';
 
@@ -66,22 +72,46 @@ export const EnglishAlphabetView: React.FC<EnglishAlphabetViewProps> = ({
       (currentIndex + 2) % ENGLISH_ALPHABET.length,
       (currentIndex - 1 + ENGLISH_ALPHABET.length) % ENGLISH_ALPHABET.length,
     ];
-    preloadBn(
-      indices.map((idx) => {
-        const item = ENGLISH_ALPHABET[idx];
-        return `${item.bengaliWord}। ${item.bengaliSentence}`;
-      })
+    const nearbyItems = indices.map((idx) => ENGLISH_ALPHABET[idx]);
+    preloadBn(nearbyItems.map((item) => `${item.bengaliWord}। ${item.bengaliSentence}`));
+    void preloadEnglishTexts(
+      nearbyItems.flatMap((item) => [
+        item.letter,
+        item.word,
+        `${item.letter} is for ${item.word}. ${item.sentence}`,
+        `Which letter starts ${item.word}?`,
+      ])
     );
+    preloadVocabImages(nearbyItems.map((item) => item.artKey));
   }, [currentIndex, preloadBn]);
 
-  const handleSpeakEnglish = (text: string) => {
+  useEffect(() => {
+    if (mode !== 'activity' || activityQuestions.length === 0) return;
+    const enQs = activityQuestions.map((q) => {
+      const target = ENGLISH_ALPHABET[q.targetIndex];
+      return `Which letter starts ${target.word}?`;
+    });
+    const bnQs = activityQuestions.map((q) => {
+      const target = ENGLISH_ALPHABET[q.targetIndex];
+      return `${target.bengaliWord}। ${target.bengaliWord} কোন বর্ণ দিয়ে শুরু হয়?`;
+    });
+    void preloadEnglishTexts(enQs);
+    preloadBn(bnQs);
+    preloadVocabImages(
+      activityQuestions.map((q) => ENGLISH_ALPHABET[q.targetIndex].artKey)
+    );
+  }, [mode, activityQuestions, preloadBn]);
+
+  const handleSpeakEnglish = async (text: string) => {
     setAudioNotice(null);
     clearBnNotice();
-    const res = speakEnglish(text, progress.settings.speechRate);
-    if (!res.spoken) {
-      setAudioNotice('English speech audio is not supported in this browser. Use the phonetic guide shown on the card.');
-    }
     onMarkLearned(current.letter);
+    const res = await speakEnglish(text, progress.settings.speechRate);
+    if (!res.spoken) {
+      setAudioNotice(
+        res.errorMessage || 'Tap once more to start English pronunciation audio.'
+      );
+    }
   };
 
   const handleSpeakBengaliMeaning = () => {
@@ -253,7 +283,38 @@ export const EnglishAlphabetView: React.FC<EnglishAlphabetViewProps> = ({
                 const target = ENGLISH_ALPHABET[activityQuestions[activityStep].targetIndex];
                 return (
                   <div className="flex flex-col items-center text-center space-y-4">
-                    <PictureArt artKey={target.artKey} label={target.word} size="lg" />
+                    <div className="flex flex-wrap items-center justify-center gap-3 sm:gap-4">
+                      <PictureArt artKey={target.artKey} label={target.word} size="lg" />
+                      <div className="flex flex-wrap items-center justify-center gap-2.5">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            void speakEnglish(
+                              `Which letter starts ${target.word}?`,
+                              progress.settings.speechRate
+                            )
+                          }
+                          aria-label={`Play English audio for ${target.word} quiz question`}
+                          className="inline-flex items-center gap-2 px-5 py-3.5 min-h-[48px] rounded-2xl bg-amber-400 hover:bg-amber-500 text-slate-900 font-bold text-sm border-b-4 border-amber-600 active:translate-y-0.5 transition-all shadow-xs"
+                        >
+                          <Volume2 className="w-5 h-5" />
+                          <span>Hear Question &amp; Word</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            void speakBn(
+                              `${target.bengaliWord}। ${target.bengaliWord} কোন বর্ণ দিয়ে শুরু হয়?`
+                            )
+                          }
+                          aria-label={`বাংলায় প্রশ্ন শুনো: ${target.bengaliWord}`}
+                          className="inline-flex items-center gap-2 px-5 py-3.5 min-h-[48px] rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm font-bengali border-b-4 border-emerald-800 active:translate-y-0.5 transition-all shadow-xs"
+                        >
+                          <Volume2 className="w-5 h-5" />
+                          <span>বাংলায় শুনো</span>
+                        </button>
+                      </div>
+                    </div>
                     <div>
                       <p className="font-display text-2xl font-extrabold text-slate-900">
                         Which letter starts “{target.word}”?
@@ -372,7 +433,7 @@ export const EnglishAlphabetView: React.FC<EnglishAlphabetViewProps> = ({
               </div>
             </div>
 
-            {/* Audio Controls (English SpeechSynthesis + Gemini Bengali bn-IN) */}
+            {/* Audio Controls (Pre-generated Indian English en-IN + Bengali bn-IN) */}
             <div className="flex flex-wrap items-center gap-3 mt-6 pt-5 border-t border-slate-100">
               <button
                 type="button"

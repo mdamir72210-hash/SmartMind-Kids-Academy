@@ -10,7 +10,19 @@ import {
 import { NUMBERS_1_TO_100, toBengaliDigits } from '../../data/numbersMath';
 import { useBengaliSpeech } from '../../hooks/useBengaliSpeech';
 import { LearningProgress } from '../../types/learning';
-import { playSuccessChime, playTapSound, playTryAgainTone, speakEnglish } from '../../utils/audio';
+import {
+  buildMathEquationAudioTokens,
+  buildMathEquationBengaliTokens,
+  playSuccessChime,
+  playTapSound,
+  playTryAgainTone,
+  preloadEnglishTexts,
+  speakEnglish,
+  speakMathEquationBengali,
+  speakMathEquationEnglish,
+  stopActiveBengaliAudio,
+  stopActiveEnglishAudio,
+} from '../../utils/audio';
 import { RewardBanner } from '../common/RewardBanner';
 
 interface MathModuleViewProps {
@@ -24,9 +36,11 @@ type Difficulty = 'beginner' | 'intermediate' | 'advanced';
 
 interface MathProblem {
   prompt: string;
+  a: number;
+  b: number;
+  op: '+' | '-' | '×';
   visualA?: number;
   visualB?: number;
-  op?: '+' | '-' | '×';
   answer: number;
   options: number[];
 }
@@ -98,9 +112,11 @@ function generateProblem(difficulty: Difficulty): MathProblem {
 
   return {
     prompt: `${a} ${op} ${b} = ?`,
+    a,
+    b,
+    op,
     visualA: difficulty === 'beginner' || op === '×' ? a : undefined,
     visualB: difficulty === 'beginner' || op === '×' ? b : undefined,
-    op,
     answer,
     options,
   };
@@ -159,26 +175,53 @@ export const MathModuleView: React.FC<MathModuleViewProps> = ({
     const resWord =
       labResult === 0 ? 'শূন্য' : NUMBERS_1_TO_100[labResult - 1]?.bengaliName || String(labResult);
 
-    const nearbyNums = [selectedNumber.value, selectedNumber.value + 1, selectedNumber.value - 1]
-      .filter((n) => n >= 1 && n <= 100)
-      .map((n) => NUMBERS_1_TO_100[n - 1].bengaliName);
+    const nearbyIndices = [selectedNumber.value, selectedNumber.value + 1, selectedNumber.value - 1].filter(
+      (n) => n >= 1 && n <= 100
+    );
+    const nearbyNums = nearbyIndices.map((n) => NUMBERS_1_TO_100[n - 1].bengaliName);
+    const nearbyEnglishNums = nearbyIndices.map((n) => String(n));
+    const problemTokens = buildMathEquationAudioTokens(problem.a, problem.op, problem.b);
+    const labTokens = buildMathEquationAudioTokens(labA, labOp, labB, labResult);
+    const problemBnTokens = buildMathEquationBengaliTokens(problem.a, problem.op, problem.b) || [];
 
     preloadBn([
       ...nearbyNums,
       NUMBERS_1_TO_100[matchTarget - 1].bengaliName,
       `${aWord} ${opWord} ${bWord} সমান ${resWord}।`,
+      ...problemBnTokens,
     ]);
-  }, [labA, labB, labOp, labResult, matchTarget, preloadBn, selectedNumber.value]);
+    void preloadEnglishTexts([
+      ...nearbyEnglishNums,
+      String(matchTarget),
+      ...problemTokens,
+      ...labTokens,
+    ]);
+  }, [
+    labA,
+    labB,
+    labOp,
+    labResult,
+    matchTarget,
+    preloadBn,
+    problem.a,
+    problem.b,
+    problem.op,
+    selectedNumber.value,
+  ]);
 
   const handleSelectNum = (entry: (typeof NUMBERS_1_TO_100)[number]) => {
+    stopActiveEnglishAudio();
+    stopActiveBengaliAudio();
     playTapSound(progress.settings.soundEffects);
     setSelectedNumber(entry);
     clearBnNotice();
     onPracticeNumber(entry.value);
-    speakEnglish(`${entry.value}. ${entry.englishName}`, progress.settings.speechRate);
+    void speakEnglish(String(entry.value), progress.settings.speechRate);
   };
 
   const handleSpeakBengaliNumber = () => {
+    stopActiveEnglishAudio();
+    stopActiveBengaliAudio();
     onPracticeNumber(selectedNumber.value);
     void speakBn(`${selectedNumber.bengaliName}`);
   };
@@ -316,12 +359,14 @@ export const MathModuleView: React.FC<MathModuleViewProps> = ({
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={() =>
-                    speakEnglish(
-                      `${selectedNumber.value}. ${selectedNumber.englishName}`,
+                  onClick={() => {
+                    stopActiveEnglishAudio();
+                    stopActiveBengaliAudio();
+                    void speakEnglish(
+                      String(selectedNumber.value),
                       progress.settings.speechRate
-                    )
-                  }
+                    );
+                  }}
                   className="inline-flex items-center gap-1.5 px-3.5 py-2 min-h-[40px] rounded-xl bg-amber-400 hover:bg-amber-500 text-slate-900 font-bold text-xs"
                 >
                   <Volume2 className="w-4 h-4" />
@@ -519,21 +564,58 @@ export const MathModuleView: React.FC<MathModuleViewProps> = ({
                 />
               </div>
 
-              <div className="pt-2 text-center bg-white border border-slate-200 rounded-2xl p-4 space-y-2">
-                <div className="font-display text-4xl font-extrabold text-slate-900 tabular-nums">
-                  {labA} {labOp} {labB} = <span className="text-emerald-600">{labResult}</span>
+              <div className="pt-2 text-center bg-white border border-slate-200 rounded-2xl p-4 space-y-2.5">
+                <div className="flex flex-wrap items-center justify-center gap-3">
+                  <div className="font-display text-4xl font-extrabold text-slate-900 tabular-nums">
+                    {labA} {labOp} {labB} = <span className="text-emerald-600">{labResult}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      void speakMathEquationEnglish(
+                        labA,
+                        labOp,
+                        labB,
+                        progress.settings.speechRate,
+                        labResult
+                      )
+                    }
+                    aria-label="Read math equation aloud in English"
+                    className="inline-flex items-center justify-center w-11 h-11 rounded-xl bg-amber-400 hover:bg-amber-500 text-slate-900 border-b-4 border-amber-600 active:translate-y-0.5 transition-all"
+                    title="Hear Equation in English"
+                  >
+                    <Volume2 className="w-5 h-5" />
+                  </button>
                 </div>
                 <div className="font-bengali text-xl font-bold text-slate-600">
                   {toBengaliDigits(labA)} {labOp} {toBengaliDigits(labB)} = {toBengaliDigits(labResult)}
                 </div>
-                <button
-                  type="button"
-                  onClick={handleSpeakBengaliLab}
-                  className="inline-flex items-center gap-1.5 px-4 py-2 min-h-[40px] rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs font-bengali"
-                >
-                  <Volume2 className="w-3.5 h-3.5" />
-                  <span>বাংলায় শুনো</span>
-                </button>
+                <div className="flex flex-wrap items-center justify-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      void speakMathEquationEnglish(
+                        labA,
+                        labOp,
+                        labB,
+                        progress.settings.speechRate,
+                        labResult
+                      )
+                    }
+                    className="inline-flex items-center gap-1.5 px-4 py-2 min-h-[40px] rounded-xl bg-amber-400 hover:bg-amber-500 text-slate-900 font-bold text-xs"
+                  >
+                    <Volume2 className="w-3.5 h-3.5" />
+                    <span>Hear English</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSpeakBengaliLab}
+                    className="inline-flex items-center gap-1.5 px-4 py-2 min-h-[40px] rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs font-bengali"
+                  >
+                    <Volume2 className="w-3.5 h-3.5" />
+                    <span>বাংলায় শুনো</span>
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -651,8 +733,44 @@ export const MathModuleView: React.FC<MathModuleViewProps> = ({
               </div>
             )}
 
-            <div className="font-display text-5xl sm:text-6xl font-extrabold text-slate-900 tabular-nums">
-              {problem.prompt}
+            <div className="flex flex-wrap items-center justify-center gap-3 sm:gap-4">
+              <div className="font-display text-5xl sm:text-6xl font-extrabold text-slate-900 tabular-nums">
+                {problem.prompt}
+              </div>
+              <div className="flex flex-wrap items-center justify-center gap-2.5">
+                <button
+                  type="button"
+                  onClick={() =>
+                    void speakMathEquationEnglish(
+                      problem.a,
+                      problem.op,
+                      problem.b,
+                      progress.settings.speechRate
+                    )
+                  }
+                  aria-label="Hear math problem aloud in English"
+                  className="inline-flex items-center gap-2 px-4 py-3 min-h-[48px] rounded-2xl bg-amber-400 hover:bg-amber-500 text-slate-900 font-bold text-sm border-b-4 border-amber-600 active:translate-y-0.5 transition-all shadow-xs"
+                >
+                  <Volume2 className="w-5 h-5" />
+                  <span>Hear Problem</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    void speakMathEquationBengali(
+                      problem.a,
+                      problem.op,
+                      problem.b,
+                      progress.settings.speechRate
+                    )
+                  }
+                  aria-label="বাংলায় গণিত প্রশ্ন শুনো"
+                  className="inline-flex items-center gap-2 px-4 py-3 min-h-[48px] rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm font-bengali border-b-4 border-emerald-800 active:translate-y-0.5 transition-all shadow-xs"
+                >
+                  <Volume2 className="w-5 h-5" />
+                  <span>বাংলায় শুনো</span>
+                </button>
+              </div>
             </div>
 
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 max-w-xl mx-auto">

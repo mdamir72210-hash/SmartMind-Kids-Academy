@@ -18,8 +18,14 @@ import { ENGLISH_ALPHABET } from '../../data/englishAlphabet';
 import { toBengaliDigits } from '../../data/numbersMath';
 import { useBengaliSpeech } from '../../hooks/useBengaliSpeech';
 import { LearningProgress, MiniGameId } from '../../types/learning';
-import { playSuccessChime, playTapSound, playTryAgainTone, speakEnglish } from '../../utils/audio';
-import { PictureArt } from '../common/PictureArt';
+import {
+  playSuccessChime,
+  playTapSound,
+  playTryAgainTone,
+  preloadEnglishTexts,
+  speakEnglish,
+} from '../../utils/audio';
+import { PictureArt, preloadVocabImages } from '../common/PictureArt';
 import { RewardBanner } from '../common/RewardBanner';
 
 interface GamesHubViewProps {
@@ -143,6 +149,7 @@ function buildRounds(gameId: MiniGameId): RoundQuestion[] {
       return {
         prompt: `Which picture starts with "${target.letter}"?`,
         bengaliPrompt: `কোন ছবিটি "${target.letter}" দিয়ে শুরু হয়?`,
+        speakText: `Which picture starts with ${target.letter}?`,
         options,
       };
     });
@@ -159,6 +166,7 @@ function buildRounds(gameId: MiniGameId): RoundQuestion[] {
           prompt: `Choose the letter for ${target.word}`,
           bengaliPrompt: `${target.bengaliWord} (${target.word}) এর সঠিক বর্ণ কোনটি?`,
           artKey: target.artKey,
+          speakText: `Choose the letter for ${target.word}.`,
           options: [target, ...distractors]
             .sort(() => Math.random() - 0.5)
             .map((i) => ({
@@ -177,6 +185,7 @@ function buildRounds(gameId: MiniGameId): RoundQuestion[] {
           prompt: `Choose the Bengali letter for "${target.word}" (${target.englishMeaning})`,
           bengaliPrompt: `"${target.word}" কোন বর্ণ দিয়ে শুরু হয়?`,
           artKey: target.artKey,
+          speakText: `Choose the Bengali letter for ${target.englishMeaning}.`,
           options: [target, ...distractors]
             .sort(() => Math.random() - 0.5)
             .map((v) => ({
@@ -199,6 +208,7 @@ function buildRounds(gameId: MiniGameId): RoundQuestion[] {
         prompt: `What is the Bengali meaning of "${target.word}"?`,
         bengaliPrompt: `"${target.word}" শব্দের বাংলা অর্থ কোনটি?`,
         artKey: target.artKey,
+        speakText: `What is the Bengali meaning of ${target.word}?`,
         options: [target, ...distractors]
           .sort(() => Math.random() - 0.5)
           .map((i) => ({
@@ -248,6 +258,7 @@ function buildRounds(gameId: MiniGameId): RoundQuestion[] {
         prompt: `Complete the word: ${masked}`,
         bengaliPrompt: `${target.bengaliWord} — শূন্যস্থানে সঠিক বর্ণ বসাও`,
         artKey: target.artKey,
+        speakText: `Complete the word: ${target.word}`,
         options: [missingChar, ...distractors]
           .sort(() => Math.random() - 0.5)
           .map((ch) => ({
@@ -272,6 +283,7 @@ function buildRounds(gameId: MiniGameId): RoundQuestion[] {
       return {
         prompt: `Count the objects: ${Array.from({ length: count }).map(() => emoji).join(' ')}`,
         bengaliPrompt: `মোট কয়টি আছে গুনে বের করো`,
+        speakText: 'Count the objects',
         options: Array.from(set)
           .sort(() => Math.random() - 0.5)
           .map((n) => ({
@@ -289,6 +301,7 @@ function buildRounds(gameId: MiniGameId): RoundQuestion[] {
     {
       prompt: 'What is 3 + 4?',
       bengaliPrompt: '৩ + ৪ কত হয়?',
+      speakText: 'What is 3 plus 4?',
       options: [
         { id: '6', label: '6', sublabel: '৬', isCorrect: false },
         { id: '7', label: '7', sublabel: '৭', isCorrect: true },
@@ -300,6 +313,7 @@ function buildRounds(gameId: MiniGameId): RoundQuestion[] {
       prompt: 'T is for Tiger. What is "Tiger" in Bengali?',
       bengaliPrompt: 'Tiger শব্দের বাংলা অর্থ কী?',
       artKey: 'tiger',
+      speakText: 'T is for Tiger. What is Tiger in Bengali?',
       options: [
         { id: 'সিংহ', label: 'সিংহ', sublabel: 'Singho', isCorrect: false },
         { id: 'বাঘ', label: 'বাঘ', sublabel: 'Bagh', isCorrect: true },
@@ -311,6 +325,7 @@ function buildRounds(gameId: MiniGameId): RoundQuestion[] {
       prompt: 'Which Bengali vowel starts the word "আম" (Mango)?',
       bengaliPrompt: '"আম" কোন স্বরবর্ণ দিয়ে শুরু হয়?',
       artKey: 'mango',
+      speakText: 'Which Bengali vowel starts the word Mango?',
       options: [
         { id: 'অ', label: 'অ', isCorrect: false },
         { id: 'আ', label: 'আ', isCorrect: true },
@@ -321,6 +336,7 @@ function buildRounds(gameId: MiniGameId): RoundQuestion[] {
     {
       prompt: 'What is 9 - 4?',
       bengaliPrompt: '৯ - ৪ কত হয়?',
+      speakText: 'What is 9 minus 4?',
       options: [
         { id: '4', label: '4', sublabel: '৪', isCorrect: false },
         { id: '5', label: '5', sublabel: '৫', isCorrect: true },
@@ -332,6 +348,7 @@ function buildRounds(gameId: MiniGameId): RoundQuestion[] {
       prompt: 'U is for Umbrella. What is Umbrella in Bengali?',
       bengaliPrompt: 'Umbrella শব্দের বাংলা অর্থ কী?',
       artKey: 'umbrella',
+      speakText: 'U is for Umbrella. What is Umbrella in Bengali?',
       options: [
         { id: 'ঘড়ি', label: 'ঘড়ি', isCorrect: false },
         { id: 'ছাতা', label: 'ছাতা', isCorrect: true },
@@ -407,8 +424,26 @@ export const GamesHubView: React.FC<GamesHubViewProps> = ({ progress, onGameComp
   useEffect(() => {
     if (rounds.length > 0) {
       preloadBn(rounds.map((r) => r.bengaliPrompt));
+      const speakTexts = rounds.map((r) => r.speakText).filter((t): t is string => Boolean(t));
+      if (speakTexts.length > 0) {
+        void preloadEnglishTexts(speakTexts);
+      }
+      const keys: string[] = [];
+      for (const r of rounds) {
+        if (r.artKey) keys.push(r.artKey);
+        for (const o of r.options) {
+          if (o.artKey) keys.push(o.artKey);
+        }
+      }
+      preloadVocabImages(keys);
     }
   }, [rounds, preloadBn]);
+
+  useEffect(() => {
+    if (puzzleCards.length > 0) {
+      preloadVocabImages(puzzleCards.map((c) => c.artKey));
+    }
+  }, [puzzleCards]);
 
   const startGame = (id: MiniGameId) => {
     playTapSound(progress.settings.soundEffects);
@@ -710,12 +745,19 @@ export const GamesHubView: React.FC<GamesHubViewProps> = ({ progress, onGameComp
                 <button
                   type="button"
                   onClick={() =>
-                    speakEnglish(rounds[roundIdx].speakText!, progress.settings.speechRate)
+                    void speakEnglish(rounds[roundIdx].speakText!, progress.settings.speechRate)
                   }
-                  className="inline-flex items-center gap-2 px-6 py-3 min-h-[48px] rounded-2xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-sm border-b-4 border-rose-800"
+                  aria-label="Play English quiz audio"
+                  className={`inline-flex items-center gap-2 px-6 py-3 min-h-[48px] rounded-2xl font-bold text-sm border-b-4 active:translate-y-0.5 transition-all ${
+                    activeGame === 'listen-select'
+                      ? 'bg-rose-600 hover:bg-rose-700 text-white border-rose-800'
+                      : 'bg-amber-400 hover:bg-amber-500 text-slate-900 border-amber-600'
+                  }`}
                 >
                   <Volume2 className="w-5 h-5" />
-                  <span>Listen to Word</span>
+                  <span>
+                    {activeGame === 'listen-select' ? 'Listen to Word' : 'Hear Word & Question'}
+                  </span>
                 </button>
               )}
               <button

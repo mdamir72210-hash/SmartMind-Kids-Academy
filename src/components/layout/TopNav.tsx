@@ -79,7 +79,7 @@ export const TopNav: React.FC<TopNavProps> = ({ activeSection, onNavigate }) => 
       {/* Mobile Bottom Navigation Bar */}
       <nav
         aria-label="Mobile quick navigation"
-        className="md:hidden fixed bottom-0 left-0 right-0 z-30 bg-white/95 backdrop-blur-md border-t border-slate-200 grid grid-cols-5 h-14"
+        className="md:hidden fixed bottom-0 left-0 right-0 z-30 bg-white/95 backdrop-blur-md border-t border-slate-200 grid grid-cols-5 mobile-bottom-nav"
       >
         {MOBILE_TABS.map((tab) => {
           const Icon = tab.icon;

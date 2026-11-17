@@ -1,21 +1,26 @@
-﻿import {
+import {
+  buildMathEquationBengaliTokens,
   getBengaliPreloadStats,
   playPreGeneratedBengaliAudio,
+  playPreGeneratedBengaliSequence,
   preloadBengaliTexts,
   PreGeneratedSpeechResult,
   stopPreGeneratedBengaliAudio,
   unlockSharedAudioContext,
 } from './bengaliPreloadedPlayer';
+import {
+  getEnglishPreloadStats,
+  playPreGeneratedEnglishAudio,
+  playPreGeneratedEnglishSequence,
+  preloadEnglishTexts,
+  stopPreGeneratedEnglishAudio,
+} from './englishPreloadedPlayer';
 
-export interface SpeechResult {
-  spoken: boolean;
-  reason?: 'no-speech-api' | 'no-bengali-voice';
-}
-
+export type SpeechResult = PreGeneratedSpeechResult;
 export type BengaliSpeechResult = PreGeneratedSpeechResult;
+export type EnglishSpeechResult = PreGeneratedSpeechResult;
 
 let sfxCtx: AudioContext | null = null;
-let fallbackEnglishAudio: HTMLAudioElement | null = null;
 
 function getSfxContext(): AudioContext | null {
   if (typeof window === 'undefined') return null;
@@ -40,14 +45,10 @@ export function unlockAudioForMobile(): void {
 
 export function stopActiveBengaliAudio(): void {
   stopPreGeneratedBengaliAudio();
-  if (fallbackEnglishAudio) {
-    try {
-      fallbackEnglishAudio.pause();
-      fallbackEnglishAudio.currentTime = 0;
-    } catch {
-      // Ignore
-    }
-  }
+}
+
+export function stopActiveEnglishAudio(): void {
+  stopPreGeneratedEnglishAudio();
 }
 
 export function playTapSound(enabled = true): void {
@@ -116,115 +117,55 @@ export function playTryAgainTone(enabled = true): void {
   }
 }
 
-// ==========================================
-// ENGLISH AUDIO (With Mobile WebView Audio Fallback)
-// ==========================================
+// =========================================================================
+// INDIAN ENGLISH AUDIO (100% Pre-Generated en-IN Static Storage + RAM Preload)
+// =========================================================================
 
-export function hasSpeechSupport(): boolean {
-  return (
-    typeof window !== 'undefined' &&
-    (('speechSynthesis' in window && typeof SpeechSynthesisUtterance !== 'undefined') ||
-      typeof Audio !== 'undefined')
-  );
+export async function speakEnglish(
+  text: string,
+  rateMode: 'slow' | 'normal' = 'normal'
+): Promise<EnglishSpeechResult> {
+  return playPreGeneratedEnglishAudio(text, rateMode);
 }
 
-export function getVoicesSafe(): SpeechSynthesisVoice[] {
-  if (typeof window === 'undefined' || !('speechSynthesis' in window)) return [];
-  try {
-    return window.speechSynthesis.getVoices() || [];
-  } catch {
-    return [];
-  }
+export async function speakEnglishSequence(
+  texts: string[],
+  rateMode: 'slow' | 'normal' = 'normal'
+): Promise<EnglishSpeechResult> {
+  return playPreGeneratedEnglishSequence(texts, rateMode);
 }
 
-export function findEnglishVoice(): SpeechSynthesisVoice | null {
-  const voices = getVoicesSafe();
-  return (
-    voices.find((v) => v.lang.toLowerCase() === 'en-us') ||
-    voices.find((v) => v.lang.toLowerCase() === 'en-gb') ||
-    voices.find((v) => v.lang.toLowerCase().startsWith('en')) ||
-    null
-  );
+export function buildMathEquationAudioTokens(
+  a: number,
+  op: '+' | '-' | '×',
+  b: number,
+  result?: number
+): string[] {
+  const opWord = op === '+' ? 'plus' : op === '-' ? 'minus' : 'times';
+  if (result !== undefined) {
+    return [String(a), opWord, String(b), 'equals', String(result)];
+  }
+  return [String(a), opWord, String(b), 'equals what?'];
 }
 
-function playFallbackEnglishAudio(text: string, rateMode: 'slow' | 'normal'): boolean {
-  if (typeof window === 'undefined' || typeof Audio === 'undefined') return false;
-  try {
-    if (fallbackEnglishAudio) {
-      fallbackEnglishAudio.pause();
-      fallbackEnglishAudio.currentTime = 0;
-    }
-    const cleanText = text.trim();
-    if (!cleanText) return false;
-
-    const encoded = encodeURIComponent(cleanText);
-    const primaryUrl = `https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=en&q=${encoded}`;
-    const backupUrl = `https://api.streamelements.com/kappa/v2/speech?voice=Brian&text=${encoded}`;
-
-    const audio = new Audio(primaryUrl);
-    audio.playbackRate = rateMode === 'slow' ? 0.85 : 1.0;
-    fallbackEnglishAudio = audio;
-
-    audio.play().catch(() => {
-      try {
-        const backupAudio = new Audio(backupUrl);
-        backupAudio.playbackRate = rateMode === 'slow' ? 0.85 : 1.0;
-        fallbackEnglishAudio = backupAudio;
-        backupAudio.play().catch(() => {});
-      } catch {
-        // Ignore
-      }
-    });
-
-    return true;
-  } catch {
-    return false;
-  }
+export async function speakMathEquationEnglish(
+  a: number,
+  op: '+' | '-' | '×',
+  b: number,
+  rateMode: 'slow' | 'normal' = 'normal',
+  result?: number
+): Promise<EnglishSpeechResult> {
+  return playPreGeneratedEnglishSequence(buildMathEquationAudioTokens(a, op, b, result), rateMode);
 }
 
-export function speakEnglish(text: string, rateMode: 'slow' | 'normal' = 'normal'): SpeechResult {
-  const hasNativeSpeech =
-    typeof window !== 'undefined' &&
-    'speechSynthesis' in window &&
-    typeof SpeechSynthesisUtterance !== 'undefined';
-
-  if (hasNativeSpeech) {
-    try {
-      const voices = getVoicesSafe();
-      // On Android WebView, speechSynthesis exists in window but has 0 voices and fails silently
-      if (voices.length > 0 || !/Android/i.test(navigator.userAgent)) {
-        window.speechSynthesis.cancel();
-        const utter = new SpeechSynthesisUtterance(text);
-        const voice = findEnglishVoice();
-        if (voice) {
-          utter.voice = voice;
-          utter.lang = voice.lang;
-        } else {
-          utter.lang = 'en-US';
-        }
-        utter.rate = rateMode === 'slow' ? 0.78 : 0.94;
-        utter.pitch = 1.05;
-        utter.onerror = () => {
-          playFallbackEnglishAudio(text, rateMode);
-        };
-        window.speechSynthesis.speak(utter);
-        return { spoken: true };
-      }
-    } catch {
-      // Fall through to HTML5 Audio fallback
-    }
-  }
-
-  const played = playFallbackEnglishAudio(text, rateMode);
-  if (played) {
-    return { spoken: true };
-  }
-  return { spoken: false, reason: 'no-speech-api' };
+export async function testEnglishPreGeneratedVoice(
+  rateMode: 'slow' | 'normal' = 'normal'
+): Promise<EnglishSpeechResult> {
+  return playPreGeneratedEnglishAudio('Hello! Welcome to SmartMind Kids Academy.', rateMode);
 }
 
 // =========================================================================
-// BENGALI AUDIO (100% Pre-Generated Static Storage + Instant RAM Preload)
-// Zero runtime API requests, zero loading states, works offline once cached.
+// INDIAN BENGALI AUDIO (100% Pre-Generated bn-IN Static Storage + RAM Preload)
 // =========================================================================
 
 export async function speakBengaliPreGenerated(
@@ -234,6 +175,24 @@ export async function speakBengaliPreGenerated(
   return playPreGeneratedBengaliAudio(text, rateMode);
 }
 
+export async function speakMathEquationBengali(
+  a: number,
+  op: '+' | '-' | '−' | '×',
+  b: number,
+  rateMode: 'slow' | 'normal' = 'slow',
+  result?: number
+): Promise<BengaliSpeechResult> {
+  const tokens = buildMathEquationBengaliTokens(a, op, b, result);
+  if (!tokens) {
+    return {
+      spoken: false,
+      reason: 'invalid-text',
+      errorMessage: 'এই গণিত প্রশ্নটির বাংলা অডিও পাওয়া যায়নি।',
+    };
+  }
+  return playPreGeneratedBengaliSequence(tokens, rateMode);
+}
+
 export async function testBengaliPreGeneratedVoice(
   rateMode: 'slow' | 'normal' = 'normal'
 ): Promise<BengaliSpeechResult> {
@@ -241,4 +200,10 @@ export async function testBengaliPreGeneratedVoice(
   return playPreGeneratedBengaliAudio(sampleText, rateMode);
 }
 
-export { getBengaliPreloadStats, preloadBengaliTexts };
+export {
+  buildMathEquationBengaliTokens,
+  getBengaliPreloadStats,
+  getEnglishPreloadStats,
+  preloadBengaliTexts,
+  preloadEnglishTexts,
+};

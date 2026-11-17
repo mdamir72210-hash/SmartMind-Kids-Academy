@@ -9,8 +9,13 @@ import {
 import { BENGALI_CONSONANTS, BENGALI_VOWELS } from '../../data/bengaliAlphabet';
 import { useBengaliSpeech } from '../../hooks/useBengaliSpeech';
 import { LearningProgress } from '../../types/learning';
-import { playSuccessChime, playTapSound, speakEnglish } from '../../utils/audio';
-import { PictureArt } from '../common/PictureArt';
+import {
+  playSuccessChime,
+  playTapSound,
+  preloadEnglishTexts,
+  speakEnglish,
+} from '../../utils/audio';
+import { PictureArt, preloadVocabImages } from '../common/PictureArt';
 import { RewardBanner } from '../common/RewardBanner';
 import { TracingCanvas } from '../common/TracingCanvas';
 
@@ -48,14 +53,20 @@ export const BengaliAlphabetView: React.FC<BengaliAlphabetViewProps> = ({
 
   useEffect(() => {
     const offsets = [0, 1, 2, 3, -1];
-    const texts: string[] = [];
+    const bnTexts: string[] = [];
+    const enTexts: string[] = [];
+    const artKeys: string[] = [];
     for (const offset of offsets) {
       const item = list[(index + offset + list.length) % list.length];
       if (item) {
-        texts.push(`${item.letter}। ${item.word}।`, item.sentence);
+        bnTexts.push(`${item.letter}। ${item.word}।`, item.sentence);
+        enTexts.push(item.englishMeaning);
+        artKeys.push(item.artKey);
       }
     }
-    preloadBn(texts);
+    preloadBn(bnTexts);
+    void preloadEnglishTexts(enTexts);
+    preloadVocabImages(artKeys);
   }, [group, index, list, preloadBn]);
 
   const handleGroupChange = (nextGroup: 'vowel' | 'consonant') => {
@@ -77,8 +88,8 @@ export const BengaliAlphabetView: React.FC<BengaliAlphabetViewProps> = ({
   };
 
   const handleHearEnglishMeaning = () => {
-    speakEnglish(`${current.englishMeaning}`, progress.settings.speechRate);
     onMarkLearned(current.letter, group);
+    void speakEnglish(`${current.englishMeaning}`, progress.settings.speechRate);
   };
 
   const handleNext = () => {

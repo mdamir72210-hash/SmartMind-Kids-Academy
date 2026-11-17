@@ -3,24 +3,102 @@ import {
   BENGALI_AUDIO_TOTAL_CLIPS,
   resolveBengaliAudioUrl,
 } from '../data/bengaliAudioManifest';
+import { NUMBERS_1_TO_100 } from '../data/numbersMath';
+import {
+  countRamReadyForPrefix,
+  getOrCreateAudioContext,
+  playPreGeneratedStaticSequence,
+  playPreGeneratedStaticUrl,
+  PreGeneratedSpeechResult,
+  preloadStaticAudioUrl,
+  preloadStaticAudioUrls,
+  stopAllPreGeneratedSpeech,
+  unlockSharedAudioContext,
+} from './preloadedSpeechCore';
 
-export interface PreGeneratedSpeechResult {
-  spoken: boolean;
-  source?: 'preloaded-ram' | 'decoded-ram' | 'static-stream';
-  url?: string;
-  reason?: 'invalid-text' | 'missing-asset' | 'playback-error';
-  errorMessage?: string;
+export type { PreGeneratedSpeechResult };
+export { getOrCreateAudioContext, unlockSharedAudioContext };
+
+export const BENGALI_CACHE_BUCKET = 'smartmind-bn-audio-v1';
+
+const BENGALI_DIGIT_MAP: Record<string, string> = {
+  '০': '0',
+  '১': '1',
+  '২': '2',
+  '৩': '3',
+  '৪': '4',
+  '৫': '5',
+  '৬': '6',
+  '৭': '7',
+  '৮': '8',
+  '৯': '9',
+};
+
+function normalizeDigitsToAscii(input: string): string {
+  return input.replace(/[০-৯]/g, (d) => BENGALI_DIGIT_MAP[d] ?? d);
 }
 
-const CACHE_BUCKET = 'smartmind-bn-audio-v1';
+export function bengaliNumberToWord(n: number): string | null {
+  if (n === 0) return 'শূন্য';
+  if (n >= 1 && n <= NUMBERS_1_TO_100.length) {
+    return NUMBERS_1_TO_100[n - 1].bengaliName;
+  }
+  return null;
+}
 
-let sharedAudioCtx: AudioContext | null = null;
-let activeSource: AudioBufferSourceNode | null = null;
-let activeHtmlAudio: HTMLAudioElement | null = null;
+export function buildMathEquationBengaliTokens(
+  a: number,
+  op: '+' | '-' | '−' | '×',
+  b: number,
+  result?: number
+): string[] | null {
+  const aWord = bengaliNumberToWord(a);
+  const bWord = bengaliNumberToWord(b);
+  if (!aWord || !bWord) return null;
 
-const arrayBufferCache = new Map<string, ArrayBuffer>();
-const audioBufferCache = new Map<string, AudioBuffer>();
-const inFlightPreloads = new Map<string, Promise<void>>();
+  const opWord = op === '+' ? 'যোগ' : op === '-' || op === '−' ? 'বিয়োগ' : 'গুণ';
+
+  if (result !== undefined) {
+    const resWord = bengaliNumberToWord(result);
+    if (!resWord) return null;
+    const full = `${aWord} ${opWord} ${bWord} সমান ${resWord}।`;
+    if (resolveBengaliAudioUrl(full)) return [full];
+    return [aWord, opWord, bWord, 'সমান', resWord];
+  }
+
+  const fullQuestion = `${aWord} ${opWord} ${bWord} সমান কত হয়?`;
+  if (resolveBengaliAudioUrl(fullQuestion)) return [fullQuestion];
+  return [aWord, opWord, bWord, 'সমান কত হয়?'];
+}
+
+export function resolveBengaliMathTokens(text: string): string[] | null {
+  const ascii = normalizeDigitsToAscii(text.normalize('NFC').trim());
+
+  const questionMatch = ascii.match(
+    /^(\d+)\s*([+\-−×*])\s*(\d+)\s*(?:=\s*\?|সমান\s*কত\s*হয়\??|কত\s*হয়\??|=\s*কত\s*\??)?\s*\??$/
+  );
+  if (questionMatch) {
+    const a = Number(questionMatch[1]);
+    const rawOp = questionMatch[2];
+    const b = Number(questionMatch[3]);
+    const op: '+' | '-' | '×' =
+      rawOp === '+' ? '+' : rawOp === '-' || rawOp === '−' ? '-' : '×';
+    return buildMathEquationBengaliTokens(a, op, b);
+  }
+
+  const equationMatch = ascii.match(/^(\d+)\s*([+\-−×*])\s*(\d+)\s*=\s*(\d+)\s*[।.]?\s*$/);
+  if (equationMatch) {
+    const a = Number(equationMatch[1]);
+    const rawOp = equationMatch[2];
+    const b = Number(equationMatch[3]);
+    const res = Number(equationMatch[4]);
+    const op: '+' | '-' | '×' =
+      rawOp === '+' ? '+' : rawOp === '-' || rawOp === '−' ? '-' : '×';
+    return buildMathEquationBengaliTokens(a, op, b, res);
+  }
+
+  return null;
+}
 
 export function getBengaliPreloadStats(): {
   totalStoredClips: number;
@@ -28,167 +106,58 @@ export function getBengaliPreloadStats(): {
 } {
   return {
     totalStoredClips: BENGALI_AUDIO_TOTAL_CLIPS,
-    ramReadyCount: audioBufferCache.size,
+    ramReadyCount: countRamReadyForPrefix('./audio/bn/'),
   };
 }
 
-export function getOrCreateAudioContext(): AudioContext | null {
-  if (typeof window === 'undefined') return null;
-  if (!sharedAudioCtx) {
-    const Ctx =
-      window.AudioContext ||
-      (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-    if (Ctx) {
-      sharedAudioCtx = new Ctx();
-    }
-  }
-  return sharedAudioCtx;
-}
-
-export function unlockSharedAudioContext(): void {
-  const ctx = getOrCreateAudioContext();
-  if (ctx && ctx.state === 'suspended') {
-    ctx.resume().catch(() => {});
-  }
-}
-
 export function stopPreGeneratedBengaliAudio(): void {
-  if (activeSource) {
-    try {
-      activeSource.stop();
-    } catch {
-      // Ignore if already stopped
-    }
-    activeSource = null;
-  }
-  if (activeHtmlAudio) {
-    try {
-      activeHtmlAudio.pause();
-      activeHtmlAudio.currentTime = 0;
-    } catch {
-      // Ignore
-    }
-    activeHtmlAudio = null;
-  }
-}
-
-async function fetchStaticMp3ArrayBuffer(url: string): Promise<ArrayBuffer | null> {
-  if (arrayBufferCache.has(url)) {
-    return arrayBufferCache.get(url)!;
-  }
-
-  try {
-    if (typeof caches !== 'undefined') {
-      const cache = await caches.open(CACHE_BUCKET);
-      const cachedRes = await cache.match(url);
-      if (cachedRes && cachedRes.ok) {
-        const buf = await cachedRes.arrayBuffer();
-        arrayBufferCache.set(url, buf);
-        return buf;
-      }
-      const networkRes = await fetch(url, { cache: 'force-cache' });
-      if (!networkRes.ok) return null;
-      await cache.put(url, networkRes.clone());
-      const buf = await networkRes.arrayBuffer();
-      arrayBufferCache.set(url, buf);
-      return buf;
-    }
-  } catch {
-    // Fall back to direct fetch below if CacheStorage is restricted
-  }
-
-  try {
-    const res = await fetch(url, { cache: 'force-cache' });
-    if (!res.ok) return null;
-    const buf = await res.arrayBuffer();
-    arrayBufferCache.set(url, buf);
-    return buf;
-  } catch {
-    return null;
-  }
-}
-
-async function decodeStaticMp3(url: string, arrayBuf: ArrayBuffer): Promise<AudioBuffer | null> {
-  if (audioBufferCache.has(url)) {
-    return audioBufferCache.get(url)!;
-  }
-  const ctx = getOrCreateAudioContext();
-  if (!ctx) return null;
-  try {
-    const decoded = await ctx.decodeAudioData(arrayBuf.slice(0));
-    audioBufferCache.set(url, decoded);
-    return decoded;
-  } catch {
-    return null;
-  }
+  stopAllPreGeneratedSpeech();
 }
 
 export function preloadBengaliUrl(url: string): Promise<void> {
-  if (!url || audioBufferCache.has(url)) {
-    return Promise.resolve();
-  }
-  const existing = inFlightPreloads.get(url);
-  if (existing) return existing;
-
-  const job = (async () => {
-    const buf = await fetchStaticMp3ArrayBuffer(url);
-    if (buf) {
-      await decodeStaticMp3(url, buf);
-    }
-  })().finally(() => {
-    inFlightPreloads.delete(url);
-  });
-
-  inFlightPreloads.set(url, job);
-  return job;
+  return preloadStaticAudioUrl(url, BENGALI_CACHE_BUCKET);
 }
 
 export async function preloadBengaliTexts(texts: string[], concurrency = 4): Promise<void> {
-  const urlSet = new Set<string>();
+  const urls: string[] = [];
   for (const t of texts) {
-    const url = resolveBengaliAudioUrl(t);
-    if (url && !audioBufferCache.has(url)) {
-      urlSet.add(url);
-    }
-  }
-  const urls = Array.from(urlSet);
-  if (urls.length === 0) return;
-
-  let index = 0;
-  async function worker() {
-    while (index < urls.length) {
-      const nextUrl = urls[index++];
-      if (nextUrl) {
-        await preloadBengaliUrl(nextUrl);
+    const mathTokens = resolveBengaliMathTokens(t);
+    if (mathTokens) {
+      for (const tok of mathTokens) {
+        const u = resolveBengaliAudioUrl(tok);
+        if (u) urls.push(u);
       }
+      continue;
     }
+    const url = resolveBengaliAudioUrl(t);
+    if (url) urls.push(url);
   }
-
-  await Promise.all(Array.from({ length: Math.min(concurrency, urls.length) }, worker));
+  await preloadStaticAudioUrls(urls, BENGALI_CACHE_BUCKET, concurrency);
 }
 
-function playAudioBufferNow(buffer: AudioBuffer, rateMode: 'slow' | 'normal'): boolean {
-  const ctx = getOrCreateAudioContext();
-  if (!ctx) return false;
-  try {
-    if (ctx.state === 'suspended') {
-      void ctx.resume();
+export async function playPreGeneratedBengaliSequence(
+  texts: string[],
+  rateMode: 'slow' | 'normal' = 'slow'
+): Promise<PreGeneratedSpeechResult> {
+  const urls: string[] = [];
+  for (const t of texts) {
+    const url = resolveBengaliAudioUrl(t);
+    if (!url) {
+      return {
+        spoken: false,
+        reason: 'missing-asset',
+        errorMessage: 'এই বাংলা শব্দটির সংরক্ষিত অডিও পাওয়া যায়নি।',
+      };
     }
-    const source = ctx.createBufferSource();
-    source.buffer = buffer;
-    source.playbackRate.value = rateMode === 'slow' ? 0.88 : 1.0;
-    source.connect(ctx.destination);
-    activeSource = source;
-    source.onended = () => {
-      if (activeSource === source) {
-        activeSource = null;
-      }
-    };
-    source.start(0);
-    return true;
-  } catch {
-    return false;
+    urls.push(url);
   }
+
+  return playPreGeneratedStaticSequence(
+    urls,
+    BENGALI_CACHE_BUCKET,
+    rateMode,
+    'অডিও চালু করতে ব্রাউজারে আবার ট্যাপ করুন।'
+  );
 }
 
 export async function playPreGeneratedBengaliAudio(
@@ -204,6 +173,11 @@ export async function playPreGeneratedBengaliAudio(
     };
   }
 
+  const mathTokens = resolveBengaliMathTokens(clean);
+  if (mathTokens) {
+    return playPreGeneratedBengaliSequence(mathTokens, rateMode);
+  }
+
   const url = resolveBengaliAudioUrl(clean);
   if (!url) {
     return {
@@ -213,45 +187,12 @@ export async function playPreGeneratedBengaliAudio(
     };
   }
 
-  unlockSharedAudioContext();
-  stopPreGeneratedBengaliAudio();
-
-  // Fast Path 1: Already decoded in RAM -> Zero-latency synchronous start
-  const readyBuffer = audioBufferCache.get(url);
-  if (readyBuffer && playAudioBufferNow(readyBuffer, rateMode)) {
-    return { spoken: true, source: 'preloaded-ram', url };
-  }
-
-  // Fast Path 2: Binary ArrayBuffer already fetched -> Instant in-memory decode & play
-  const readyArrayBuf = arrayBufferCache.get(url);
-  if (readyArrayBuf) {
-    const decoded = await decodeStaticMp3(url, readyArrayBuf);
-    if (decoded && playAudioBufferNow(decoded, rateMode)) {
-      return { spoken: true, source: 'decoded-ram', url };
-    }
-  }
-
-  // Fast Path 3: Direct HTMLAudioElement playback from static storage + background RAM cache
-  try {
-    const audio = new Audio(url);
-    audio.preload = 'auto';
-    audio.playbackRate = rateMode === 'slow' ? 0.88 : 1.0;
-    activeHtmlAudio = audio;
-    audio.onended = () => {
-      if (activeHtmlAudio === audio) {
-        activeHtmlAudio = null;
-      }
-    };
-    await audio.play();
-    void preloadBengaliUrl(url);
-    return { spoken: true, source: 'static-stream', url };
-  } catch {
-    return {
-      spoken: false,
-      reason: 'playback-error',
-      errorMessage: 'অডিও চালু করতে ব্রাউজারে আবার ট্যাপ করুন।',
-    };
-  }
+  return playPreGeneratedStaticUrl(
+    url,
+    BENGALI_CACHE_BUCKET,
+    rateMode,
+    'অডিও চালু করতে ব্রাউজারে আবার ট্যাপ করুন।'
+  );
 }
 
 export function getAllManifestAudioUrls(): string[] {

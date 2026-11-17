@@ -10,6 +10,11 @@ import {
   Star,
   Trophy,
 } from 'lucide-react';
+import academyMascotOwlImg from '../../assets/images/academy_mascot_owl_1794803041009.jpg';
+import bengaliLearningBannerImg from '../../assets/images/bengali_learning_banner_1794803041873.jpg';
+import englishAbcBannerImg from '../../assets/images/english_abc_banner_1794803042183.jpg';
+import mathAdventureBannerImg from '../../assets/images/math_adventure_banner_1794803042120.jpg';
+import { PICTURE_ITEMS } from '../../data/pictureLearning';
 import { AppSection, LearningProgress } from '../../types/learning';
 import { getLevelInfo } from '../../utils/storage';
 
@@ -43,7 +48,7 @@ export const HomeView: React.FC<HomeViewProps> = ({ progress, onNavigate }) => {
       iconBg: 'bg-sky-600 text-white',
       btnBg: 'bg-sky-600 hover:bg-sky-700 border-sky-800',
       icon: BookOpen,
-      bannerImg: '/src/assets/images/english_abc_banner_1794803042183.jpg',
+      bannerImg: englishAbcBannerImg,
     },
     {
       id: 'bengali',
@@ -55,7 +60,7 @@ export const HomeView: React.FC<HomeViewProps> = ({ progress, onNavigate }) => {
       iconBg: 'bg-emerald-600 text-white',
       btnBg: 'bg-emerald-600 hover:bg-emerald-700 border-emerald-800',
       icon: Languages,
-      bannerImg: '/src/assets/images/bengali_learning_banner_1794803041873.jpg',
+      bannerImg: bengaliLearningBannerImg,
     },
     {
       id: 'math',
@@ -67,14 +72,14 @@ export const HomeView: React.FC<HomeViewProps> = ({ progress, onNavigate }) => {
       iconBg: 'bg-amber-500 text-white',
       btnBg: 'bg-amber-500 hover:bg-amber-600 border-amber-700',
       icon: Calculator,
-      bannerImg: '/src/assets/images/math_adventure_banner_1794803042120.jpg',
+      bannerImg: mathAdventureBannerImg,
     },
     {
       id: 'pictures',
       title: 'Picture Learning',
       bengaliTitle: 'ছবি দেখে শব্দ শেখা',
       subtitle: 'Animals, birds, fruits, colors, vehicles & daily words',
-      statText: `${progress.picturesViewed.length}/50 pictures explored`,
+      statText: `${progress.picturesViewed.length}/${PICTURE_ITEMS.length} pictures explored`,
       cardBg: 'bg-rose-50 border-rose-200',
       iconBg: 'bg-rose-500 text-white',
       btnBg: 'bg-rose-500 hover:bg-rose-600 border-rose-700',
@@ -145,7 +150,7 @@ export const HomeView: React.FC<HomeViewProps> = ({ progress, onNavigate }) => {
           <div className="lg:col-span-4 flex flex-col items-center bg-[#FFFDF7] border border-amber-200 rounded-2xl p-4">
             <div className="w-36 h-36 sm:w-44 sm:h-44 rounded-2xl overflow-hidden border-2 border-amber-200 bg-amber-50">
               <img
-                src="/src/assets/images/academy_mascot_owl_1794803041009.jpg"
+                src={academyMascotOwlImg}
                 alt="Professor Owl mascot reading a storybook"
                 referrerPolicy="no-referrer"
                 className="w-full h-full object-cover"

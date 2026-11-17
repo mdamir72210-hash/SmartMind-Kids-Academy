@@ -8,11 +8,12 @@ import { MathModuleView } from './components/views/MathModuleView';
 import { ParentSectionView } from './components/views/ParentSectionView';
 import { PictureLearningView } from './components/views/PictureLearningView';
 import { ProgressView } from './components/views/ProgressView';
+import { preloadVocabImages } from './components/common/PictureArt';
 import { BENGALI_VOWELS } from './data/bengaliAlphabet';
 import { ENGLISH_ALPHABET } from './data/englishAlphabet';
 import { NUMBERS_1_TO_100 } from './data/numbersMath';
 import { AppSection, LearningProgress, MiniGameId } from './types/learning';
-import { preloadBengaliTexts } from './utils/audio';
+import { preloadBengaliTexts, preloadEnglishTexts } from './utils/audio';
 import {
   createActivityEntry,
   loadProgress,
@@ -30,13 +31,24 @@ export default function App() {
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      const starterClips = [
+      const starterBnClips = [
         'নমস্কার! স্মার্টমাইন্ড কিডস একাডেমিতে স্বাগতম।',
         ...ENGLISH_ALPHABET.slice(0, 6).map((i) => `${i.bengaliWord}। ${i.bengaliSentence}`),
         ...BENGALI_VOWELS.slice(0, 6).flatMap((v) => [`${v.letter}। ${v.word}।`, v.sentence]),
         ...NUMBERS_1_TO_100.slice(0, 10).map((n) => n.bengaliName),
       ];
-      void preloadBengaliTexts(starterClips, 3);
+      const starterEnClips = [
+        'Hello! Welcome to SmartMind Kids Academy.',
+        ...ENGLISH_ALPHABET.slice(0, 6).flatMap((i) => [
+          i.letter,
+          i.word,
+          `${i.letter} is for ${i.word}. ${i.sentence}`,
+        ]),
+        ...NUMBERS_1_TO_100.slice(0, 10).map((n) => String(n.value)),
+      ];
+      preloadVocabImages(ENGLISH_ALPHABET.slice(0, 8).map((i) => i.artKey));
+      void preloadBengaliTexts(starterBnClips, 3);
+      void preloadEnglishTexts(starterEnClips, 3);
     }, 350);
     return () => window.clearTimeout(timer);
   }, []);
@@ -191,7 +203,7 @@ export default function App() {
     <div className="min-h-screen flex flex-col bg-[#FAF8F4]">
       <TopNav activeSection={activeSection} onNavigate={navigate} />
 
-      <main className="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-6 sm:py-8 pb-20 md:pb-10">
+      <main className="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-6 sm:py-8 pb-32 md:pb-10">
         {activeSection === 'home' && <HomeView progress={progress} onNavigate={navigate} />}
 
         {activeSection === 'english' && (

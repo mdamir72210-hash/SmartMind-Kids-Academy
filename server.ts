@@ -16,7 +16,7 @@ const IS_PROD = process.env.NODE_ENV === 'production';
 async function startServer() {
   const app = express();
 
-  // Serve pre-generated Bengali static MP3 clips with immutable caching
+  // Serve pre-generated English (en-IN) and Bengali (bn-IN) static MP3 clips with immutable caching
   const publicAudioDir = path.join(__dirname, 'public', 'audio');
   const distAudioDir = path.join(__dirname, 'dist', 'audio');
   const audioDir = IS_PROD && fs.existsSync(distAudioDir) ? distAudioDir : publicAudioDir;
@@ -31,20 +31,47 @@ async function startServer() {
     );
   }
 
+  // Serve pre-generated realistic vocabulary WebP images with immutable caching
+  const publicImagesDir = path.join(__dirname, 'public', 'images');
+  const distImagesDir = path.join(__dirname, 'dist', 'images');
+  const imagesDir = IS_PROD && fs.existsSync(distImagesDir) ? distImagesDir : publicImagesDir;
+
+  if (fs.existsSync(imagesDir)) {
+    app.use(
+      '/images',
+      express.static(imagesDir, {
+        maxAge: '365d',
+        immutable: true,
+      })
+    );
+  }
+
   app.get('/api/health', (_req: Request, res: Response) => {
     const bnDir = path.join(audioDir, 'bn');
-    let clipCount = 0;
+    const enDir = path.join(audioDir, 'en');
+    const vocabImgDir = path.join(imagesDir, 'vocab');
+    let bengaliClips = 0;
+    let englishClips = 0;
+    let vocabImages = 0;
     try {
       if (fs.existsSync(bnDir)) {
-        clipCount = fs.readdirSync(bnDir).filter((f) => f.endsWith('.mp3')).length;
+        bengaliClips = fs.readdirSync(bnDir).filter((f) => f.endsWith('.mp3')).length;
+      }
+      if (fs.existsSync(enDir)) {
+        englishClips = fs.readdirSync(enDir).filter((f) => f.endsWith('.mp3')).length;
+      }
+      if (fs.existsSync(vocabImgDir)) {
+        vocabImages = fs.readdirSync(vocabImgDir).filter((f) => f.endsWith('.webp')).length;
       }
     } catch {
-      clipCount = 0;
+      // Ignore partial read errors
     }
     res.json({
       ok: true,
-      mode: 'pre-generated-static-audio',
-      bengaliClips: clipCount,
+      mode: 'pre-generated-static-audio-and-images',
+      englishClips,
+      bengaliClips,
+      vocabImages,
     });
   });
 

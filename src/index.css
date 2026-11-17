@@ -2,9 +2,9 @@
 
 @layer base {
   :root {
-    --font-display: 'Outfit', 'Noto Sans Bengali', system-ui, sans-serif;
-    --font-sans: 'Plus Jakarta Sans', 'Noto Sans Bengali', system-ui, sans-serif;
-    --font-bengali: 'Noto Sans Bengali', 'Plus Jakarta Sans', system-ui, sans-serif;
+    --font-display: 'Kohinoor Bangla', 'Noto Sans Bengali', 'Bangla Sangam MN', 'Shonar Bangla', system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    --font-sans: 'Kohinoor Bangla', 'Noto Sans Bengali', 'Bangla Sangam MN', 'Shonar Bangla', system-ui, -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    --font-bengali: 'Noto Sans Bengali', 'Kohinoor Bangla', 'Bangla Sangam MN', 'Shonar Bangla', 'Vrinda', 'Lohit Bengali', system-ui, sans-serif;
   }
 
   body {
@@ -20,6 +20,12 @@
   .font-bengali {
     font-family: var(--font-bengali);
   }
+}
+
+.mobile-bottom-nav {
+  min-height: 68px;
+  padding-top: 6px;
+  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 24px);
 }
 
 .tabular-nums {

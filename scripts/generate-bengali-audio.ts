@@ -106,6 +106,20 @@ function collectAllBengaliTexts(): string[] {
     add(q);
   }
 
+  // 5b. English A-Z Quick Activity Bengali word + question prompts
+  for (const item of ENGLISH_ALPHABET) {
+    add(`${item.bengaliWord}। ${item.bengaliWord} কোন বর্ণ দিয়ে শুরু হয়?`);
+  }
+
+  // 5c. Bengali math question phrase & quiz spoken forms
+  for (const phrase of [
+    'সমান কত হয়?',
+    'তিন যোগ চার সমান কত হয়?',
+    'নয় বিয়োগ চার সমান কত হয়?',
+  ]) {
+    add(phrase);
+  }
+
   // 6. Voice Check greeting
   add('নমস্কার! স্মার্টমাইন্ড কিডস একাডেমিতে স্বাগতম।');
 

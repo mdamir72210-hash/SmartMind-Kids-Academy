@@ -3,8 +3,8 @@ import { AlertCircle, CheckCircle2, Volume2 } from 'lucide-react';
 import { PICTURE_CATEGORIES, PICTURE_ITEMS } from '../../data/pictureLearning';
 import { useBengaliSpeech } from '../../hooks/useBengaliSpeech';
 import { LearningProgress, PictureCategoryId, PictureItem } from '../../types/learning';
-import { playTapSound, speakEnglish } from '../../utils/audio';
-import { PictureArt } from '../common/PictureArt';
+import { playTapSound, preloadEnglishTexts, speakEnglish } from '../../utils/audio';
+import { PictureArt, preloadVocabImages } from '../common/PictureArt';
 
 interface PictureLearningViewProps {
   progress: LearningProgress;
@@ -33,18 +33,20 @@ export const PictureLearningView: React.FC<PictureLearningViewProps> = ({
 
   useEffect(() => {
     preloadBn(items.map((item) => `${item.bengali}।`));
+    void preloadEnglishTexts(items.map((item) => item.english));
+    preloadVocabImages(items.map((item) => item.artKey));
   }, [items, preloadBn]);
 
   const currentMeta = PICTURE_CATEGORIES.find((c) => c.id === activeCategory)!;
 
-  const handleCardTap = (item: PictureItem) => {
+  const handleCardTap = async (item: PictureItem) => {
     playTapSound(progress.settings.soundEffects);
     setSelectedItem(item);
     clearBnNotice();
     onViewPicture(item.id);
-    const res = speakEnglish(item.english, progress.settings.speechRate);
+    const res = await speakEnglish(item.english, progress.settings.speechRate);
     if (!res.spoken) {
-      setAudioHint(`English speech unavailable on this browser. Say: "${item.english}" (${item.phonetic})`);
+      setAudioHint(res.errorMessage || `Tap once more to hear "${item.english}".`);
     } else {
       setAudioHint(null);
     }

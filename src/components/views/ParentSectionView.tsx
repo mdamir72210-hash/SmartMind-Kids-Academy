@@ -11,7 +11,12 @@ import {
 } from 'lucide-react';
 import { useBengaliSpeech } from '../../hooks/useBengaliSpeech';
 import { LearningProgress } from '../../types/learning';
-import { getBengaliPreloadStats } from '../../utils/audio';
+import {
+  getBengaliPreloadStats,
+  getEnglishPreloadStats,
+  preloadEnglishTexts,
+  testEnglishPreGeneratedVoice,
+} from '../../utils/audio';
 
 interface ParentSectionViewProps {
   progress: LearningProgress;
@@ -34,6 +39,8 @@ export const ParentSectionView: React.FC<ParentSectionViewProps> = ({
   const [gateError, setGateError] = useState<string | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
   const [audioStats, setAudioStats] = useState(() => getBengaliPreloadStats());
+  const [enAudioStats, setEnAudioStats] = useState(() => getEnglishPreloadStats());
+  const [enNotice, setEnNotice] = useState<string | null>(null);
 
   const {
     notice: ttsNotice,
@@ -45,7 +52,9 @@ export const ParentSectionView: React.FC<ParentSectionViewProps> = ({
   useEffect(() => {
     if (!unlocked) return;
     preloadBn(['নমস্কার! স্মার্টমাইন্ড কিডস একাডেমিতে স্বাগতম।']);
+    void preloadEnglishTexts(['Hello! Welcome to SmartMind Kids Academy.']);
     setAudioStats(getBengaliPreloadStats());
+    setEnAudioStats(getEnglishPreloadStats());
   }, [unlocked, preloadBn, ttsNotice]);
 
   const handleUnlock = (e: React.FormEvent) => {
@@ -220,10 +229,10 @@ export const ParentSectionView: React.FC<ParentSectionViewProps> = ({
         </section>
       </div>
 
-      {/* Parent Settings & Pre-generated Bengali Voice Diagnostics */}
+      {/* Parent Settings & Pre-generated Voice Diagnostics */}
       <section className="bg-white border border-slate-200 rounded-3xl p-5 sm:p-6 space-y-5">
         <h2 className="font-display text-lg font-bold text-slate-900">
-          Audio, Pre-generated Bengali Voice (bn-IN) &amp; Learning Settings
+          Audio, Pre-generated Voices (en-IN &amp; bn-IN) &amp; Learning Settings
         </h2>
 
         <div className="flex flex-wrap items-center justify-between gap-4 py-2 border-b border-slate-100">
@@ -231,14 +240,31 @@ export const ParentSectionView: React.FC<ParentSectionViewProps> = ({
             <Database className="w-5 h-5 text-sky-600" />
             <div>
               <p className="font-bold text-sm text-slate-900">
-                Pre-generated Bengali Voice (bn-IN)
+                Pre-generated Indian English (en-IN) &amp; Bengali (bn-IN) Voices
               </p>
               <p className="text-xs text-slate-500 tabular-nums">
-                {audioStats.totalStoredClips} pre-generated Bengali clips in storage · {audioStats.ramReadyCount} preloaded in RAM for instant playback
+                English: {enAudioStats.totalStoredClips} static clips ({enAudioStats.ramReadyCount} in RAM) · Bengali: {audioStats.totalStoredClips} static clips ({audioStats.ramReadyCount} in RAM)
               </p>
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={async () => {
+                setEnNotice(null);
+                const res = await testEnglishPreGeneratedVoice(progress.settings.speechRate);
+                setEnAudioStats(getEnglishPreloadStats());
+                setEnNotice(
+                  res.spoken
+                    ? 'Pre-generated Indian English (en-IN) voice played cleanly from static storage.'
+                    : res.errorMessage || 'Could not start English audio.'
+                );
+              }}
+              className="inline-flex items-center gap-1.5 px-4 py-2 min-h-[40px] rounded-xl bg-amber-400 hover:bg-amber-500 text-slate-900 font-bold text-xs"
+            >
+              <Volume2 className="w-3.5 h-3.5" />
+              <span>Test English Voice</span>
+            </button>
             <button
               type="button"
               onClick={() => void testVoice()}
@@ -250,10 +276,15 @@ export const ParentSectionView: React.FC<ParentSectionViewProps> = ({
             <button
               type="button"
               onClick={() => {
+                setEnNotice(null);
                 if (typeof caches !== 'undefined') {
-                  void caches.delete('smartmind-bn-audio-v1').then(() => {
+                  void Promise.all([
+                    caches.delete('smartmind-bn-audio-v1'),
+                    caches.delete('smartmind-en-audio-v1'),
+                  ]).then(() => {
                     clearNotice();
                     setAudioStats(getBengaliPreloadStats());
+                    setEnAudioStats(getEnglishPreloadStats());
                   });
                 } else {
                   clearNotice();
@@ -266,6 +297,16 @@ export const ParentSectionView: React.FC<ParentSectionViewProps> = ({
             </button>
           </div>
         </div>
+
+        {enNotice && (
+          <div
+            role="status"
+            className="flex items-start gap-2 text-xs font-medium rounded-xl px-3.5 py-2.5 border bg-emerald-50 border-emerald-200 text-emerald-800"
+          >
+            <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
+            <span>{enNotice}</span>
+          </div>
+        )}
 
         {ttsNotice && (
           <div
