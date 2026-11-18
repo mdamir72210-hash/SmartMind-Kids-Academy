@@ -5,13 +5,18 @@ import {
 } from '../data/englishAudioManifest';
 import {
   countRamReadyForPrefix,
+  getOrCreateAudioContext,
   playPreGeneratedStaticSequence,
   playPreGeneratedStaticUrl,
   PreGeneratedSpeechResult,
   preloadStaticAudioUrl,
   preloadStaticAudioUrls,
   stopAllPreGeneratedSpeech,
+  unlockSharedAudioContext,
 } from './preloadedSpeechCore';
+
+export type { PreGeneratedSpeechResult };
+export { getOrCreateAudioContext, unlockSharedAudioContext };
 
 export const ENGLISH_CACHE_BUCKET = 'smartmind-en-audio-v1';
 

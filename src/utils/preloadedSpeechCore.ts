@@ -7,8 +7,9 @@ export interface PreGeneratedSpeechResult {
 }
 
 let sharedAudioCtx: AudioContext | null = null;
+let sharedHtmlAudio: HTMLAudioElement | null = null;
 const activeSources = new Set<AudioBufferSourceNode>();
-let activeHtmlAudio: HTMLAudioElement | null = null;
+let pendingPlaybackFinish: (() => void) | null = null;
 let activePlaybackId = 0;
 let lastTriggerUrl = '';
 let lastTriggerTime = 0;
@@ -16,6 +17,29 @@ let lastTriggerTime = 0;
 const arrayBufferCache = new Map<string, ArrayBuffer>();
 const audioBufferCache = new Map<string, AudioBuffer>();
 const inFlightPreloads = new Map<string, Promise<void>>();
+
+export function resolvePlaybackUrl(url: string): string {
+  if (!url) return url;
+  const trimmed = url.trim();
+  const relative = trimmed.startsWith('/') ? `.${trimmed}` : trimmed;
+  if (typeof document !== 'undefined' && document.baseURI) {
+    try {
+      return new URL(relative, document.baseURI).href;
+    } catch {
+      return relative;
+    }
+  }
+  return relative;
+}
+
+function getSharedHtmlAudio(): HTMLAudioElement | null {
+  if (typeof window === 'undefined' || typeof Audio === 'undefined') return null;
+  if (!sharedHtmlAudio) {
+    sharedHtmlAudio = new Audio();
+    sharedHtmlAudio.preload = 'auto';
+  }
+  return sharedHtmlAudio;
+}
 
 export function getOrCreateAudioContext(): AudioContext | null {
   if (typeof window === 'undefined') return null;
@@ -35,6 +59,7 @@ export function unlockSharedAudioContext(): void {
   if (ctx && ctx.state === 'suspended') {
     ctx.resume().catch(() => {});
   }
+  getSharedHtmlAudio();
 }
 
 function resetActiveAudioHandles(): void {
@@ -49,16 +74,23 @@ function resetActiveAudioHandles(): void {
   }
   activeSources.clear();
 
-  if (activeHtmlAudio) {
+  if (pendingPlaybackFinish) {
+    const finish = pendingPlaybackFinish;
+    pendingPlaybackFinish = null;
+    finish();
+  }
+
+  if (sharedHtmlAudio) {
     try {
-      activeHtmlAudio.onended = null;
-      activeHtmlAudio.onerror = null;
-      activeHtmlAudio.pause();
-      activeHtmlAudio.currentTime = 0;
+      sharedHtmlAudio.onended = null;
+      sharedHtmlAudio.onerror = null;
+      sharedHtmlAudio.pause();
+      if (sharedHtmlAudio.readyState > 0) {
+        sharedHtmlAudio.currentTime = 0;
+      }
     } catch {
-      // Ignore
+      // Ignore reset errors on unloaded element
     }
-    activeHtmlAudio = null;
   }
 }
 
@@ -96,18 +128,24 @@ async function fetchStaticMp3ArrayBuffer(
     return arrayBufferCache.get(url)!;
   }
 
+  // In file:// Android WebView APKs, fetch() on file:// URLs is unsupported; skip silently
+  const resolvedHref = resolvePlaybackUrl(url);
+  if (resolvedHref.startsWith('file:')) {
+    return null;
+  }
+
   try {
     if (typeof caches !== 'undefined') {
       const cache = await caches.open(cacheBucket);
-      const cachedRes = await cache.match(url);
+      const cachedRes = await cache.match(resolvedHref);
       if (cachedRes && cachedRes.ok) {
         const buf = await cachedRes.arrayBuffer();
         arrayBufferCache.set(url, buf);
         return buf;
       }
-      const networkRes = await fetch(url, { cache: 'force-cache' });
+      const networkRes = await fetch(resolvedHref, { cache: 'force-cache' });
       if (!networkRes.ok) return null;
-      await cache.put(url, networkRes.clone());
+      await cache.put(resolvedHref, networkRes.clone());
       const buf = await networkRes.arrayBuffer();
       arrayBufferCache.set(url, buf);
       return buf;
@@ -117,7 +155,7 @@ async function fetchStaticMp3ArrayBuffer(
   }
 
   try {
-    const res = await fetch(url, { cache: 'force-cache' });
+    const res = await fetch(resolvedHref, { cache: 'force-cache' });
     if (!res.ok) return null;
     const buf = await res.arrayBuffer();
     arrayBufferCache.set(url, buf);
@@ -252,45 +290,44 @@ export async function playPreGeneratedStaticUrl(
   const reqId = ++activePlaybackId;
   resetActiveAudioHandles();
 
-  // Fast Path 1: Already decoded in RAM -> Zero-latency synchronous start
+  // Fast Path 1: Already decoded in RAM -> Zero-latency synchronous Web Audio start
   const readyBuffer = audioBufferCache.get(url);
   if (readyBuffer && playAudioBufferNow(readyBuffer, playbackRate, reqId)) {
     return { spoken: true, source: 'preloaded-ram', url };
   }
 
-  // Fast Path 2: Binary ArrayBuffer already fetched -> Instant in-memory decode & play
-  const readyArrayBuf = arrayBufferCache.get(url);
-  if (readyArrayBuf) {
-    const decoded = await decodeStaticMp3(url, readyArrayBuf);
-    if (reqId !== activePlaybackId) {
-      return { spoken: false, reason: 'superseded' };
-    }
-    if (decoded && playAudioBufferNow(decoded, playbackRate, reqId)) {
-      return { spoken: true, source: 'decoded-ram', url };
-    }
+  // Fast Path 2: Single reusable HTMLAudioElement synchronous unlock-and-play (100% Android WebView safe)
+  const audio = getSharedHtmlAudio();
+  if (!audio) {
+    lastTriggerUrl = '';
+    return {
+      spoken: false,
+      reason: 'playback-error',
+      errorMessage: playbackErrorMessage,
+    };
   }
 
-  // Fast Path 3: Direct HTMLAudioElement playback from static storage + background RAM cache
   try {
-    const audio = new Audio(url);
-    audio.preload = 'auto';
-    audio.playbackRate = playbackRate;
-    activeHtmlAudio = audio;
+    const resolvedHref = resolvePlaybackUrl(url);
     audio.onended = () => {
-      if (activeHtmlAudio === audio) {
-        activeHtmlAudio = null;
-      }
+      audio.onended = null;
+      audio.onerror = null;
     };
+    audio.onerror = () => {
+      audio.onended = null;
+      audio.onerror = null;
+    };
+    audio.src = resolvedHref;
+    audio.defaultPlaybackRate = playbackRate;
+    audio.playbackRate = playbackRate;
     await audio.play();
     if (reqId !== activePlaybackId) {
-      audio.pause();
-      audio.currentTime = 0;
-      if (activeHtmlAudio === audio) activeHtmlAudio = null;
       return { spoken: false, reason: 'superseded' };
     }
     void preloadStaticAudioUrl(url, cacheBucket);
     return { spoken: true, source: 'static-stream', url };
   } catch {
+    lastTriggerUrl = '';
     return {
       spoken: false,
       reason: 'playback-error',
@@ -322,11 +359,7 @@ export async function playPreGeneratedStaticSequence(
   const reqId = ++activePlaybackId;
   resetActiveAudioHandles();
 
-  await preloadStaticAudioUrls(urls, cacheBucket, 4);
-  if (reqId !== activePlaybackId) {
-    return { spoken: false, reason: 'superseded' };
-  }
-
+  // Fast Path 1: All clips already decoded in RAM -> synchronous gapless Web Audio scheduling
   const ctx = getOrCreateAudioContext();
   const buffers = urls.map((u) => audioBufferCache.get(u)).filter((b): b is AudioBuffer => Boolean(b));
 
@@ -351,38 +384,88 @@ export async function playPreGeneratedStaticSequence(
       }
       return { spoken: true, source: 'preloaded-ram', url: urls[0] };
     } catch {
-      // Fall through to HTMLAudio sequential playback below
+      // Fall through to single reusable HTMLAudioElement sequential playback below
     }
   }
 
-  // Sequential HTMLAudioElement fallback
-  try {
-    for (const url of urls) {
-      if (reqId !== activePlaybackId) {
-        return { spoken: false, reason: 'superseded' };
-      }
-      await new Promise<void>((resolve, reject) => {
-        const audio = new Audio(url);
-        audio.preload = 'auto';
-        audio.playbackRate = playbackRate;
-        activeHtmlAudio = audio;
-        audio.onended = () => {
-          if (activeHtmlAudio === audio) activeHtmlAudio = null;
-          resolve();
-        };
-        audio.onerror = () => {
-          if (activeHtmlAudio === audio) activeHtmlAudio = null;
-          reject(new Error('HTMLAudio playback error'));
-        };
-        audio.play().catch(reject);
-      });
-    }
-    return { spoken: true, source: 'static-stream', url: urls[0] };
-  } catch {
+  // Fast Path 2: Single reusable HTMLAudioElement synchronous start + onended chaining
+  // Zero async awaits before audio.play() so Android APK WebView keeps user gesture activation
+  const audio = getSharedHtmlAudio();
+  if (!audio) {
     return {
       spoken: false,
       reason: 'playback-error',
       errorMessage: playbackErrorMessage,
     };
   }
+
+  void preloadStaticAudioUrls(urls, cacheBucket, 4);
+
+  return new Promise<PreGeneratedSpeechResult>((resolve) => {
+    let settled = false;
+
+    const finish = (result: PreGeneratedSpeechResult) => {
+      if (settled) return;
+      settled = true;
+      if (pendingPlaybackFinish === cancelCurrent) {
+        pendingPlaybackFinish = null;
+      }
+      resolve(result);
+    };
+
+    const cancelCurrent = () => {
+      audio.onended = null;
+      audio.onerror = null;
+      finish({ spoken: false, reason: 'superseded' });
+    };
+
+    pendingPlaybackFinish = cancelCurrent;
+
+    const playAt = (index: number) => {
+      if (reqId !== activePlaybackId) {
+        finish({ spoken: false, reason: 'superseded' });
+        return;
+      }
+      const targetHref = resolvePlaybackUrl(urls[index]);
+      audio.onended = () => {
+        audio.onended = null;
+        audio.onerror = null;
+        if (reqId !== activePlaybackId) {
+          finish({ spoken: false, reason: 'superseded' });
+          return;
+        }
+        if (index + 1 < urls.length) {
+          playAt(index + 1);
+        } else {
+          finish({ spoken: true, source: 'static-stream', url: urls[0] });
+        }
+      };
+      audio.onerror = () => {
+        audio.onended = null;
+        audio.onerror = null;
+        finish({
+          spoken: false,
+          reason: 'playback-error',
+          errorMessage: playbackErrorMessage,
+        });
+      };
+      audio.src = targetHref;
+      audio.defaultPlaybackRate = playbackRate;
+      audio.playbackRate = playbackRate;
+      const playPromise = audio.play();
+      if (playPromise && typeof playPromise.catch === 'function') {
+        playPromise.catch(() => {
+          audio.onended = null;
+          audio.onerror = null;
+          finish({
+            spoken: false,
+            reason: 'playback-error',
+            errorMessage: playbackErrorMessage,
+          });
+        });
+      }
+    };
+
+    playAt(0);
+  });
 }
