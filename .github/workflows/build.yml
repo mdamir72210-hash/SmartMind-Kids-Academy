@@ -1,21 +1,49 @@
-name: Build Offline App
+name: Build Offline Android APK
+
 on:
   push:
-    branches: [ main ]
+    branches: [ main, master ]
   workflow_dispatch:
 
 jobs:
-  build:
+  build-apk:
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
           node-version: '20'
-      - run: npm install --legacy-peer-deps
-      - run: npm run build
-      - name: Upload Ready dist Folder
+
+      - name: Setup Java JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Install dependencies & Build Web App
+        run: |
+          npm install --legacy-peer-deps
+          npm run build
+
+      - name: Initialize Capacitor & Add Android
+        run: |
+          npm install @capacitor/core @capacitor/cli @capacitor/android --legacy-peer-deps
+          npx cap init "SmartMind Kids Academy" "com.smartmind.kidsacademy" --web-dir=dist
+          npx cap add android
+          npx cap sync android
+
+      - name: Build Debug APK
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleDebug
+
+      - name: Upload Offline APK
         uses: actions/upload-artifact@v4
         with:
-          name: smartmind-dist-ready
-          path: dist/
+          name: SmartMindKidsAcademy-Offline-APK
+          path: android/app/build/outputs/apk/debug/app-debug.apk
