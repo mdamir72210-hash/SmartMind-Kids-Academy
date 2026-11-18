@@ -31,10 +31,14 @@ jobs:
 
       - name: Initialize Capacitor & Add Android
         run: |
-          npm install @capacitor/core @capacitor/cli @capacitor/android --legacy-peer-deps
+          npm install @capacitor/core @capacitor/cli @capacitor/android @capacitor/assets --legacy-peer-deps
           rm -f capacitor.config.ts capacitor.config.json
           echo '{"appId":"com.smartmind.kidsacademy","appName":"SmartMind Kids Academy","webDir":"dist"}' > capacitor.config.json
           npx cap add android
+          mkdir -p assets
+          cp icon_512x512.png assets/icon-only.png
+          cp icon_512x512.png assets/icon-foreground.png
+          npx capacitor-assets generate --android
           npx cap sync android
 
       - name: Fix Kotlin Duplicate Class Conflict
