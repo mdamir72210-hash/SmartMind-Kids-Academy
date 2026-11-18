@@ -38,6 +38,7 @@ jobs:
           mkdir -p assets
           cp icon_512x512.png assets/icon-only.png
           cp icon_512x512.png assets/icon-foreground.png
+          cp icon_512x512.png assets/icon-background.png
           npx capacitor-assets generate --android
           npx cap sync android
 
